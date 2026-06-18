@@ -19,9 +19,9 @@ services:
       XDG_CACHE_HOME: "/opt/deepfilternet-cache"
       CUDA_VISIBLE_DEVICES: "0"
     volumes:
-      - ./input:/data/input
-      - ./output:/data/output
-      - ./work:/data/work
+      - ./data/input:/data/input
+      - ./data/output:/data/output
+      - ./data/work:/data/work
     deploy:
       resources:
         reservations:
