@@ -6,6 +6,12 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whisper.rule=Host(`noiser.csrdigas.es`)"
+      - "traefik.http.routers.whisper.entrypoints=websecure"
+      - "traefik.http.routers.whisper.tls=true"
+      - "traefik.http.services.whisper.loadbalancer.server.port=8080"
     environment:
       API_TOKEN: "${API_TOKEN:-pruebakey}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
