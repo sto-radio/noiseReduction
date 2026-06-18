@@ -1,0 +1,12 @@
+[
+  {
+    "uuid": "caeDeepFilterNet3Clean",
+    "name": "DeepFilterNet3 interview traffic cleaner",
+    "description": "DeepFilterNet3 noise suppression followed by EBU R128 loudness normalization.",
+    "output_format": "wav",
+    "target_loudness_lufs": -18.0,
+    "true_peak_dbtp": -1.5,
+    "lra": 11.0,
+    "post_filter": true
+  }
+]

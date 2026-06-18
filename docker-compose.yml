@@ -1,0 +1,32 @@
+services:
+  noise-reduction:
+    build: .
+    image: cae-deepfilter-cleaner:latest
+    container_name: cae-deepfilter-cleaner
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      API_TOKEN: "${API_TOKEN:-pruebakey}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
+      DEEPFILTER_MODEL: "${DEEPFILTER_MODEL:-DeepFilterNet3}"
+      DEEPFILTER_POSTFILTER: "${DEEPFILTER_POSTFILTER:-true}"
+      TARGET_LOUDNESS_LUFS: "${TARGET_LOUDNESS_LUFS:--18}"
+      TRUE_PEAK_DBTP: "${TRUE_PEAK_DBTP:--1.5}"
+      LRA: "${LRA:-11}"
+      OUTPUT_FORMAT: "${OUTPUT_FORMAT:-wav}"
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-2048}"
+      XDG_CACHE_HOME: "/opt/deepfilternet-cache"
+      CUDA_VISIBLE_DEVICES: "0"
+    volumes:
+      - ./input:/data/input
+      - ./output:/data/output
+      - ./work:/data/work
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    gpus: all

@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+work
+input
+output
+models
+*.wav
+*.mp3
+*.m4a
+*.flac
