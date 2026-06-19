@@ -1,6 +1,6 @@
 # CAE DeepFilterNet3 cleaner
 
-Servicio local para limpiar entrevistas con ruido de trafico/coche desde CAE de Digasystem usando el tipo de plugin `AUPHONIC`.
+Servicio local para limpiar entrevistas con ruido de trafico/coche desde CAE de Digasystem usando el tipo de plugin `XAUDIO`.
 
 Cadena de proceso:
 
@@ -47,19 +47,36 @@ curl http://localhost:8080/health
 
 El primer `build` instala PyTorch CUDA, DeepFilterNet y descarga el modelo `DeepFilterNet3` en la imagen.
 
-## Configuracion en CAE
+## Configuracion recomendada en CAE
 
 En `Options > Smart Audio`:
 
-- `Type`: `AUPHONIC`
+- `Type`: `XAUDIO`
 - `Display Name`: `DeepFilterNet3 Cleaner`
 - `API Url`: `http://IP_DEL_HOST_DOCKER:8080/api`
-- `API Key`: el valor de `API_TOKEN` en `.env`
+- `API Key`: vacio, salvo que CAE permita enviarlo explicitamente
 - `API Config`: `DeepFilterNet3 interview traffic cleaner`
 
 Si CAE corre en la misma maquina que Docker, prueba primero con `http://localhost:8080/api`. Si CAE corre en otro equipo, usa la IP o DNS del host Docker y deja abierto el puerto `8080`.
 
+El endpoint XAUDIO que usa CAE es:
+
+```text
+POST /api/fileLoudnessNormalizer?outExt=.wav&options=[]-23[TP]-1[LRA]15[OFFSET]0
+Form Data: input_file=(binary)
+Response: application/octet-stream
+```
+
 ## Prueba manual
+
+```powershell
+curl.exe --globoff `
+  -F "input_file=@input/entrevista.wav" `
+  "http://localhost:8080/api/fileLoudnessNormalizer?outExt=.wav&options=[]-23[TP]-1[LRA]15[OFFSET]0" `
+  --output output/entrevista_limpia.wav
+```
+
+La API Auphonic anterior sigue disponible para pruebas o compatibilidad:
 
 ```powershell
 curl.exe -H "Authorization: bearer change-me" `
@@ -69,15 +86,6 @@ curl.exe -H "Authorization: bearer change-me" `
   -F "action=start" `
   http://localhost:8080/api/simple/productions.json
 ```
-
-Consulta el estado:
-
-```powershell
-curl.exe -H "Authorization: bearer change-me" `
-  http://localhost:8080/api/production/UUID/status.json
-```
-
-Cuando el estado sea `Done`, el JSON de la produccion incluye `output_files[0].download_url`.
 
 ## Carpetas
 

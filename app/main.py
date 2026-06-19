@@ -1,15 +1,20 @@
 import asyncio
 import base64
 import json
+import re
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import requests
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .audio_pipeline import (
     PipelineError,
@@ -25,11 +30,22 @@ from .storage import STATUS, JobStore
 settings = get_settings()
 store = JobStore(settings)
 app = FastAPI(title="CAE DeepFilterNet3 Cleaner", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=".*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Content-Length", "Content-Type"],
+)
 
 
 def auth_dependency(
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-Api-Key"),
+    api_key_header: str | None = Header(default=None, alias="Api-Key"),
     bearer_token: str | None = Query(default=None),
+    api_key: str | None = Query(default=None),
 ) -> None:
     expected = settings.api_token.strip()
     if not expected:
@@ -37,6 +53,12 @@ def auth_dependency(
     candidates = []
     if bearer_token:
         candidates.append(bearer_token)
+    if api_key:
+        candidates.append(api_key)
+    if x_api_key:
+        candidates.append(x_api_key)
+    if api_key_header:
+        candidates.append(api_key_header)
     if authorization:
         candidates.append(authorization)
         scheme, _, value = authorization.partition(" ")
@@ -79,6 +101,29 @@ def api_error(message: str, status_code: int = 400, error_code: str = "error") -
     )
 
 
+@app.middleware("http")
+async def json_options_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return api_response({"ok": True})
+    return await call_next(request)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
+    return api_error(detail, exc.status_code, "http_error")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return api_error(json.dumps(exc.errors()), 422, "validation_error")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    return api_error(f"Unexpected server error: {exc}", 500, "server_error")
+
+
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
@@ -87,6 +132,20 @@ def root() -> dict[str, Any]:
         "api": "/api",
         "health": "/health",
     }
+
+
+@app.get("/api")
+@app.get("/api/")
+def api_root() -> JSONResponse:
+    return api_response(
+        {
+            "name": "CAE DeepFilterNet3 Cleaner",
+            "user": "/api/user.json",
+            "presets": "/api/presets.json",
+            "productions": "/api/productions.json",
+            "simple": "/api/simple/productions.json",
+        }
+    )
 
 
 @app.get("/health")
@@ -99,7 +158,8 @@ def health() -> dict[str, Any]:
     }
 
 
-@app.get("/api/user.json", dependencies=[Depends(auth_dependency)])
+@app.get("/api/user.json")
+@app.get("/user.json")
 def user() -> JSONResponse:
     return api_response(
         {
@@ -115,27 +175,32 @@ def user() -> JSONResponse:
     )
 
 
-@app.get("/api/me.json", dependencies=[Depends(auth_dependency)])
+@app.get("/api/me.json")
+@app.get("/me.json")
 def me() -> JSONResponse:
     return user()
 
 
 @app.get("/api/info/production_status.json", dependencies=[Depends(auth_dependency)])
+@app.get("/info/production_status.json", dependencies=[Depends(auth_dependency)])
 def production_status() -> JSONResponse:
     return api_response({str(key): value for key, value in STATUS.items()})
 
 
 @app.get("/api/info/output_files.json", dependencies=[Depends(auth_dependency)])
+@app.get("/info/output_files.json", dependencies=[Depends(auth_dependency)])
 def output_files_info() -> JSONResponse:
     return api_response(output_files_data())
 
 
 @app.get("/api/info/algorithms.json", dependencies=[Depends(auth_dependency)])
+@app.get("/info/algorithms.json", dependencies=[Depends(auth_dependency)])
 def algorithms_info() -> JSONResponse:
     return api_response(algorithms_data())
 
 
 @app.get("/api/info.json", dependencies=[Depends(auth_dependency)])
+@app.get("/info.json", dependencies=[Depends(auth_dependency)])
 def info() -> JSONResponse:
     return api_response(
         {
@@ -147,7 +212,8 @@ def info() -> JSONResponse:
     )
 
 
-@app.get("/api/presets.json", dependencies=[Depends(auth_dependency)])
+@app.get("/api/presets.json")
+@app.get("/presets.json")
 def list_presets(
     uuids_only: int = Query(default=0),
     minimal_data: int = Query(default=0),
@@ -171,6 +237,7 @@ def list_presets(
 
 
 @app.get("/api/preset/{preset_id}.json", dependencies=[Depends(auth_dependency)])
+@app.get("/preset/{preset_id}.json", dependencies=[Depends(auth_dependency)])
 def get_preset(preset_id: str) -> JSONResponse:
     preset = find_preset(preset_id)
     if preset is None:
@@ -179,6 +246,7 @@ def get_preset(preset_id: str) -> JSONResponse:
 
 
 @app.get("/api/productions.json", dependencies=[Depends(auth_dependency)])
+@app.get("/productions.json", dependencies=[Depends(auth_dependency)])
 def list_productions(
     limit: int = Query(default=10),
     offset: int = Query(default=0),
@@ -194,6 +262,7 @@ def list_productions(
 
 
 @app.post("/api/productions.json", dependencies=[Depends(auth_dependency)])
+@app.post("/productions.json", dependencies=[Depends(auth_dependency)])
 async def create_production(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
     payload = await request.json()
     metadata = payload.get("metadata") or {}
@@ -215,6 +284,7 @@ async def create_production(request: Request, background_tasks: BackgroundTasks)
 
 
 @app.post("/api/simple/productions.json", dependencies=[Depends(auth_dependency)])
+@app.post("/simple/productions.json", dependencies=[Depends(auth_dependency)])
 async def simple_production(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
     form = await request.form()
     title = str(form.get("title") or "")
@@ -236,7 +306,51 @@ async def simple_production(request: Request, background_tasks: BackgroundTasks)
     return api_response(job_to_auphonic(store.get(job["uuid"]) or job))
 
 
+@app.post("/api/fileLoudnessNormalizer")
+@app.post("/fileLoudnessNormalizer")
+async def xaudio_file_loudness_normalizer(
+    request: Request,
+    outExt: str = Query(default=".wav"),
+    options: str = Query(default=""),
+) -> FileResponse:
+    form = await request.form()
+    input_value = form.get("input_file") or form.get("file") or form.get("input")
+    if not isinstance(input_value, StarletteUploadFile):
+        raise HTTPException(status_code=400, detail="Missing multipart form file field: input_file")
+
+    job_id = f"xaudio-{uuid.uuid4().hex}"
+    input_dir = store.input_dir(job_id)
+    output_dir = store.output_dir(job_id)
+    process_dir = store.process_dir(job_id)
+    reset_directory(input_dir)
+    reset_directory(process_dir)
+
+    input_path = await save_upload(input_value, input_dir)
+    request_settings = xaudio_settings_from_query(outExt, options)
+    output_format = normalized_xaudio_ext(outExt)
+    result = await asyncio.to_thread(
+        process_audio,
+        input_path,
+        output_dir,
+        process_dir,
+        "output",
+        request_settings,
+    )
+    output_path = result.output_path
+
+    return FileResponse(
+        output_path,
+        media_type="application/octet-stream",
+        filename=f"output.{output_format}",
+        headers={
+            "Cache-Control": "no-store",
+            "Access-Control-Expose-Headers": "Content-Disposition, Content-Length, Content-Type",
+        },
+    )
+
+
 @app.get("/api/production/{job_id}.json", dependencies=[Depends(auth_dependency)])
+@app.get("/production/{job_id}.json", dependencies=[Depends(auth_dependency)])
 def get_production(job_id: str) -> JSONResponse:
     job = store.get(job_id)
     if job is None:
@@ -245,6 +359,7 @@ def get_production(job_id: str) -> JSONResponse:
 
 
 @app.post("/api/production/{job_id}.json", dependencies=[Depends(auth_dependency)])
+@app.post("/production/{job_id}.json", dependencies=[Depends(auth_dependency)])
 async def update_production(job_id: str, request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
     job = store.get(job_id)
     if job is None:
@@ -262,6 +377,7 @@ async def update_production(job_id: str, request: Request, background_tasks: Bac
 
 
 @app.post("/api/production/{job_id}/upload.json", dependencies=[Depends(auth_dependency)])
+@app.post("/production/{job_id}/upload.json", dependencies=[Depends(auth_dependency)])
 async def upload_production_input(job_id: str, request: Request) -> JSONResponse:
     job = store.get(job_id)
     if job is None:
@@ -275,6 +391,7 @@ async def upload_production_input(job_id: str, request: Request) -> JSONResponse
 
 
 @app.post("/api/production/{job_id}/start.json", dependencies=[Depends(auth_dependency)])
+@app.post("/production/{job_id}/start.json", dependencies=[Depends(auth_dependency)])
 def start_production(job_id: str, background_tasks: BackgroundTasks) -> JSONResponse:
     job = store.get(job_id)
     if job is None:
@@ -284,6 +401,7 @@ def start_production(job_id: str, background_tasks: BackgroundTasks) -> JSONResp
 
 
 @app.get("/api/production/{job_id}/status.json", dependencies=[Depends(auth_dependency)])
+@app.get("/production/{job_id}/status.json", dependencies=[Depends(auth_dependency)])
 def production_status_query(job_id: str) -> JSONResponse:
     job = store.get(job_id)
     if job is None:
@@ -292,6 +410,7 @@ def production_status_query(job_id: str) -> JSONResponse:
 
 
 @app.get("/api/download/audio-result/{job_id}/{filename}", dependencies=[Depends(auth_dependency)])
+@app.get("/download/audio-result/{job_id}/{filename}", dependencies=[Depends(auth_dependency)])
 def download_result(job_id: str, filename: str) -> FileResponse:
     job = store.get(job_id)
     if job is None:
@@ -531,6 +650,52 @@ def output_file_payload(job_id: str, path: Path) -> dict[str, Any]:
     }
 
 
+def xaudio_settings_from_query(out_ext: str, options: str) -> Settings:
+    output_format = normalized_xaudio_ext(out_ext)
+    updates: dict[str, Any] = {"output_format": output_format}
+    parsed_options = parse_xaudio_options(options)
+    if "target_loudness_lufs" in parsed_options:
+        updates["target_loudness_lufs"] = parsed_options["target_loudness_lufs"]
+    if "true_peak_dbtp" in parsed_options:
+        updates["true_peak_dbtp"] = parsed_options["true_peak_dbtp"]
+    if "lra" in parsed_options:
+        updates["lra"] = parsed_options["lra"]
+    return settings.model_copy(update=updates)
+
+
+def normalized_xaudio_ext(out_ext: str) -> str:
+    value = out_ext.strip().lower().lstrip(".")
+    if value in {"", "wave"}:
+        return "wav"
+    if value == "mp4":
+        return "m4a"
+    if value in {"wav", "flac", "mp3", "m4a", "aac"}:
+        return value
+    raise HTTPException(status_code=400, detail=f"Unsupported outExt: {out_ext}")
+
+
+def parse_xaudio_options(options: str) -> dict[str, float]:
+    parsed: dict[str, float] = {}
+    if not options:
+        return parsed
+
+    target_match = re.search(r"(?:\[\]|\[I\]|\[LUFS\])\s*(-?\d+(?:[.,]\d+)?)", options, re.IGNORECASE)
+    true_peak_match = re.search(r"\[TP\]\s*(-?\d+(?:[.,]\d+)?)", options, re.IGNORECASE)
+    lra_match = re.search(r"\[LRA\]\s*(-?\d+(?:[.,]\d+)?)", options, re.IGNORECASE)
+
+    if target_match:
+        parsed["target_loudness_lufs"] = parse_xaudio_float(target_match.group(1))
+    if true_peak_match:
+        parsed["true_peak_dbtp"] = parse_xaudio_float(true_peak_match.group(1))
+    if lra_match:
+        parsed["lra"] = parse_xaudio_float(lra_match.group(1))
+    return parsed
+
+
+def parse_xaudio_float(value: str) -> float:
+    return float(value.replace(",", "."))
+
+
 def load_presets() -> list[dict[str, Any]]:
     path = Path("config/presets.json")
     if not path.exists():
@@ -591,11 +756,26 @@ def find_preset(preset_id: str) -> dict[str, Any] | None:
 
 def preset_to_auphonic(preset: dict[str, Any]) -> dict[str, Any]:
     output_format = preset.get("output_format") or settings.output_format
+    xaudio_out_ext = f".{output_format.lstrip('.')}"
+    xaudio_options = preset.get("xaudio_options") or (
+        f"[]{preset.get('target_loudness_lufs', settings.target_loudness_lufs):g}"
+        f"[TP]{preset.get('true_peak_dbtp', settings.true_peak_dbtp):g}"
+        f"[LRA]{preset.get('lra', settings.lra):g}"
+        "[OFFSET]0"
+    )
     return {
         "uuid": preset["uuid"],
         "preset_name": preset["name"],
+        "name": preset["name"],
         "metadata": {"title": preset["name"]},
         "output_basename": "",
+        "method": "POST",
+        "endpoint": "fileLoudnessNormalizer",
+        "api_endpoint": "fileLoudnessNormalizer",
+        "url": f"fileLoudnessNormalizer?outExt={xaudio_out_ext}&options={xaudio_options}",
+        "outExt": xaudio_out_ext,
+        "options": xaudio_options,
+        "form_field": "input_file",
         "outgoing_services": [],
         "output_files": [
             {
@@ -632,3 +812,17 @@ def is_relative_to(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+@app.api_route(
+    "/api/{unknown_path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    dependencies=[Depends(auth_dependency)],
+)
+@app.api_route(
+    "/{unknown_path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    dependencies=[Depends(auth_dependency)],
+)
+def unknown_api_endpoint(unknown_path: str) -> JSONResponse:
+    return api_error(f"Unknown API endpoint: {unknown_path}", 404, "not_found")
