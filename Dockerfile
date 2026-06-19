@@ -2,10 +2,15 @@ FROM python:3.10-slim
 
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TORCHAUDIO_USE_BACKEND_DISPATCHER=0
+ENV TORCHAUDIO_BACKEND=sox_io
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
+    sox \
+    libsox-dev \
+    libsox-fmt-all \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*

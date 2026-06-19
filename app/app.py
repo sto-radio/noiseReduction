@@ -63,7 +63,10 @@ async def file_loudness_normalizer(
     run_cmd([
         "ffmpeg", "-y",
         "-i", str(raw_input),
+        "-vn",
+        "-ac", "1",
         "-ar", "48000",
+        "-sample_fmt", "s16",
         "-c:a", "pcm_s16le",
         str(normalized_input)
     ])
