@@ -62,7 +62,7 @@ Si CAE corre en la misma maquina que Docker, prueba primero con `http://localhos
 El endpoint XAUDIO que usa CAE es:
 
 ```text
-POST /api/fileLoudnessNormalizer?outExt=.wav&options=[]-23[TP]-1[LRA]15[OFFSET]0
+POST /api/fileLoudnessNormalizer?outExt=.wav&options=[I]-23[TP]-1[LRA]15[OFFSET]0
 Form Data: input_file=(binary)
 Response: application/octet-stream
 ```
@@ -72,7 +72,7 @@ Response: application/octet-stream
 ```powershell
 curl.exe --globoff `
   -F "input_file=@input/entrevista.wav" `
-  "http://localhost:8080/api/fileLoudnessNormalizer?outExt=.wav&options=[]-23[TP]-1[LRA]15[OFFSET]0" `
+  "http://localhost:8080/api/fileLoudnessNormalizer?outExt=.wav&options=[I]-23[TP]-1[LRA]15[OFFSET]0" `
   --output output/entrevista_limpia.wav
 ```
 

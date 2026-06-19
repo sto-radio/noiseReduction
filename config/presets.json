@@ -7,7 +7,7 @@
     "target_loudness_lufs": -18.0,
     "true_peak_dbtp": -1.5,
     "lra": 11.0,
-    "xaudio_options": "[]-23[TP]-1[LRA]15[OFFSET]0",
+    "xaudio_options": "[I]-23[TP]-1[LRA]15[OFFSET]0",
     "post_filter": true
   }
 ]

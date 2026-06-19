@@ -3,6 +3,7 @@ import base64
 import json
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,19 @@ async def json_options_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return api_response({"ok": True})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def request_log_middleware(request: Request, call_next):
+    started = time.monotonic()
+    response = await call_next(request)
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    query = f"?{request.url.query}" if request.url.query else ""
+    print(
+        f'{request.method} {request.url.path}{query} -> {response.status_code} ({elapsed_ms} ms)',
+        flush=True,
+    )
+    return response
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -307,7 +321,17 @@ async def simple_production(request: Request, background_tasks: BackgroundTasks)
 
 
 @app.post("/api/fileLoudnessNormalizer")
+@app.post("/api/fileLoudnessNormalizer/")
+@app.post("/api/fileLoudnessNormalizer.json")
+@app.post("/api/fileloudnessnormalizer")
+@app.post("/api/fileloudnessnormalizer/")
+@app.post("/api/fileloudnessnormalizer.json")
 @app.post("/fileLoudnessNormalizer")
+@app.post("/fileLoudnessNormalizer/")
+@app.post("/fileLoudnessNormalizer.json")
+@app.post("/fileloudnessnormalizer")
+@app.post("/fileloudnessnormalizer/")
+@app.post("/fileloudnessnormalizer.json")
 async def xaudio_file_loudness_normalizer(
     request: Request,
     outExt: str = Query(default=".wav"),
@@ -346,6 +370,32 @@ async def xaudio_file_loudness_normalizer(
             "Cache-Control": "no-store",
             "Access-Control-Expose-Headers": "Content-Disposition, Content-Length, Content-Type",
         },
+    )
+
+
+@app.get("/api/fileLoudnessNormalizer")
+@app.get("/api/fileLoudnessNormalizer/")
+@app.get("/api/fileLoudnessNormalizer.json")
+@app.get("/api/fileloudnessnormalizer")
+@app.get("/api/fileloudnessnormalizer/")
+@app.get("/api/fileloudnessnormalizer.json")
+@app.get("/fileLoudnessNormalizer")
+@app.get("/fileLoudnessNormalizer/")
+@app.get("/fileLoudnessNormalizer.json")
+@app.get("/fileloudnessnormalizer")
+@app.get("/fileloudnessnormalizer/")
+@app.get("/fileloudnessnormalizer.json")
+def xaudio_file_loudness_normalizer_info() -> JSONResponse:
+    return api_response(
+        {
+            "method": "POST",
+            "content_type": "multipart/form-data",
+            "input_field": "input_file",
+            "query": {
+                "outExt": ".wav",
+                "options": "[I]-23[TP]-1[LRA]15[OFFSET]0",
+            },
+        }
     )
 
 
@@ -758,7 +808,7 @@ def preset_to_auphonic(preset: dict[str, Any]) -> dict[str, Any]:
     output_format = preset.get("output_format") or settings.output_format
     xaudio_out_ext = f".{output_format.lstrip('.')}"
     xaudio_options = preset.get("xaudio_options") or (
-        f"[]{preset.get('target_loudness_lufs', settings.target_loudness_lufs):g}"
+        f"[I]{preset.get('target_loudness_lufs', settings.target_loudness_lufs):g}"
         f"[TP]{preset.get('true_peak_dbtp', settings.true_peak_dbtp):g}"
         f"[LRA]{preset.get('lra', settings.lra):g}"
         "[OFFSET]0"
@@ -817,12 +867,10 @@ def is_relative_to(path: Path, root: Path) -> bool:
 @app.api_route(
     "/api/{unknown_path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    dependencies=[Depends(auth_dependency)],
 )
 @app.api_route(
     "/{unknown_path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    dependencies=[Depends(auth_dependency)],
 )
 def unknown_api_endpoint(unknown_path: str) -> JSONResponse:
     return api_error(f"Unknown API endpoint: {unknown_path}", 404, "not_found")
